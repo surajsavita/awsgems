@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import getopt
+
+from sys import stderr
+
+import boto.ec2
+from boto.ec2 import connect_to_region
+
+conn = None
+
+
+def short_usage():
+    print >>stderr, """Howto: ec2-list [-r REGION] [-t TAG] [NAME]
+    ec2-list Proxy => pawslmktwap01 10.0.x.y."""
+
+
+def full_usage():
+    print >>stderr, """Howto: ec2-list [-r REGION] [-t TAG] [NAME]
+Prints server host name.
+
+  -h, --help                 display this help and exit
+  -r, --region REGION        Amazon EC2 Region, defaults to us-east-1 or ENV[AWS_EC2_REGION]
+  -t, --tag TAG              Tag name for searching, defaults to 'Name'"""
+
+
+def ec2_instances(label_tag, filters):
+    instances = []
+    kwargs = {}
+    # filters= {'tag:Name': 'Marketplace*'}
+    if filters:
+        kwargs['filters'] = filters
+
+    reservations = conn.get_all_instances(**kwargs)
+    for reservation in reservations:
+        for instance in reservation.instances:
+            instance_name = instance.tags.get(label_tag.capitalize())
+
+            pair = (instance_name, instance.private_ip_address)
+            instances.append(pair)
+    return instances
+
+
+def main(argv):
+    try:
+        opts, args = getopt.getopt(argv, "hLk:s:r:t:",
+                                         ["help", "aws-key=", "aws-secret=", "region=", "tag="])
+        # print opts,  args
+    except getopt.GetoptError, err:
+        print >>sys.stderr, err
+        short_usage()
+        sys.exit(2)
+
+    tag = "Name"
+    region = "ap-southeast-1"
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            full_usage()
+            sys.exit()
+        elif opt in ("-r", "--region"):
+            region = arg
+        elif opt in ("-t", "--tag"):
+            tag = arg
+
+
+    global conn
+    conn = connect_to_region(region)
+
+    argc = len(args)
+
+    filters = {}
+    if argc == 1:
+        filters['tag:%s' % tag] = "*"+args[0]+"*"
+    elif argc > 1:
+        print >>stderr, "Warning: more than one name given"
+        sys.exit(1)
+        return
+
+    instances = ec2_instances(tag, filters)
+
+    numinstances = len(instances)
+
+    if numinstances == 1:
+        print instances[0][1]  # [1] = dns
+
+        sys.exit(0)
+
+    elif numinstances == 0 or numinstances > 1:
+        for pair in sorted(instances, key=lambda p: p[0]):
+            print "%s\t%s" % pair
+
+        sys.exit(0)
+
+    else:
+        print >>stderr, 'Unable to match "%s"' % args[0]
+        short_usage()
+
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
